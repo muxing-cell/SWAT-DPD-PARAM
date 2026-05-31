@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"name": "dataset",
+			"path": "../../../../Downloads/THz-NL-main/THz-NL-main/dataset"
+		},
+		{
+			"name": "SWAT-DPD",
+			"path": "../.."
+		}
+	],
+	"settings": {}
+}

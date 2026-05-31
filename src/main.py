@@ -1,57 +1,64 @@
 import sys
 import os
-
-# 1. 获取当前 main.py 所在的绝对路径 (也就是 src 文件夹)
-current_dir = os.path.dirname(os.path.abspath(__file__))
-# 2. 拼接出 model 文件夹的路径
-model_dir = os.path.join(current_dir, 'model')
-
-# 3. 将 model 文件夹强行插入到 Python 模块搜索路径的最前面
-if model_dir not in sys.path:
-    sys.path.insert(0, model_dir)
 import argparse
 import torch
+
+# 确保能找到内部模块
+current_dir = os.path.dirname(os.path.abspath(__file__))
+model_dir = os.path.join(current_dir, 'model')
+if model_dir not in sys.path:
+    sys.path.insert(0, model_dir)
+
 from config import SWATConfig
-from model.swat_dpd import SWAT_DPD
-from utils import JointTimeFreqLoss
-from dataset import get_dataloader
-from trainer import Trainer
-from output import OutputManager
+from pipeline import TrainPipeline, EvalPipeline
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="SWAT-DPD Training Pipeline")
-    parser.add_argument('--epochs', type=int, default=10, help='Number of training epochs')
-    parser.add_argument('--batch_size', type=int, default=16, help='Batch size')
-    parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate')
-    parser.add_argument('--device', type=str, default='cuda', help='Target device (cuda or cpu)')
+    parser = argparse.ArgumentParser(description="SWAT-DPD Golden Entry Point")
+    parser.add_argument('--epochs', type=int, help='覆盖 Config 中的轮数')
+    parser.add_argument('--batch_size', type=int, help='覆盖 Config 中的 Batch Size')
+    parser.add_argument('--lr', type=float, help='覆盖 Config 中的学习率')
+   
+    parser.add_argument('--mode', type=str, default='all', choices=['train', 'eval', 'all'], 
+                        help='运行模式: train(仅训练), eval(仅评估), all(训练并评估)')
+    parser.add_argument('--eval_ckpt', type=str, default=None, 
+                        help='仅在 eval 模式下有效，指定要评估的权重名称')
     return parser.parse_args()
 
 def main():
-    # 1. 直接读取你的全局配置，不需要 parse_args() 来捣乱了
+    args = parse_args()
     cfg = SWATConfig()
+    
+    if args.epochs: cfg.epochs = args.epochs
+    if args.batch_size: cfg.batch_size = args.batch_size
+    if args.lr: cfg.lr = args.lr
 
-    # 2. 保留原作者一个很好的设计：GPU 可用性检查
     if cfg.device == 'cuda' and not torch.cuda.is_available():
-        print("⚠️ 警告: 未检测到可用的 GPU，强制降级为 CPU 运行。")
+        print(" 警告: 未检测到可用 GPU，强制降级为 CPU 运行。")
         cfg.device = 'cpu'
 
-    print(f"[*] Starting SWAT-DPD Training on {cfg.device.upper()}...")
+    print(f"[*] SWAT-DPD 系统启动 | 设备: {cfg.device.upper()} | 模式: {args.mode.upper()}")
 
-    # 构建数据管道与模型组件 (下面完全保持原样)
-    dataloader = get_dataloader(cfg)
-    model = SWAT_DPD(cfg)
-    criterion = JointTimeFreqLoss(lambda_f=cfg.lambda_f)
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
-    
-    # 实例化输出管理器与训练器
-    output_mgr = OutputManager(save_dir="checkpoints")
-    trainer = Trainer(model, dataloader, optimizer, criterion, cfg, output_mgr)
-    
-    # 启动训练闭环
-    trainer.fit()
-    
-    # 导出训练历史记录
-    output_mgr.export_history()
-    print("[*] Training pipeline completed successfully.")
+    try:
+        final_ckpt = args.eval_ckpt
+
+        
+        if args.mode in ['train', 'all']:
+            train_pipe = TrainPipeline(cfg)
+          
+            final_ckpt = train_pipe.execute()
+            
+        
+        if args.mode in ['eval', 'all']:
+            if not final_ckpt:
+                final_ckpt = "best_model.pth" # 默认寻找最佳模型
+                
+            eval_pipe = EvalPipeline(cfg)
+            eval_pipe.execute(checkpoint_name=final_ckpt)
+            
+    except KeyboardInterrupt:
+        print("\n[*] 任务被用户手动中断。")
+    except Exception as e:
+        print(f"\n  运行发生严重错误: {e}")
+
 if __name__ == "__main__":
     main()
