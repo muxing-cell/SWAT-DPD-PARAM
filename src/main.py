@@ -3,7 +3,7 @@ import os
 import argparse
 import torch
 
-# 确保能找到内部模块
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 model_dir = os.path.join(current_dir, 'model')
 if model_dir not in sys.path:
